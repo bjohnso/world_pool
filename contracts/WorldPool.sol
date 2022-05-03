@@ -18,7 +18,12 @@ contract WorldPool is ReentrancyGuard {
 
         require(
             pools[poolId].owner == address(0x0),
-            "Could not generate unique Pool Id."
+            "Could not generate unique Pool ID."
+        );
+
+        require(
+            bytes(name).length > 0,
+            "Pool name can not be empty."
         );
 
         Pool memory pool = Pool({
@@ -30,6 +35,39 @@ contract WorldPool is ReentrancyGuard {
         });
 
         pools[poolId] = pool;
+    }
+
+    function updatePool(bytes32 poolId, string memory name, string memory description) public {
+        address owner = msg.sender;
+
+        require(
+            pools[poolId].owner != address(0x0),
+            "No Pool exists for this ID."
+        );
+
+        require(
+            pools[poolId].owner == owner,
+            "A transaction signer must own the Pool they wish to update."
+        );
+
+        require(
+            bytes(name).length > 0,
+            "Pool name can not be empty."
+        );
+
+        Pool memory pool = pools[poolId];
+
+        if (!compareStrings(pool.name, name)) {
+            pool.name = name;
+        }
+
+        if (!compareStrings(pool.description, description)) {
+            pool.description = description;
+        }
+    }
+
+    function compareStrings (string memory a, string memory b) public pure returns (bool) {
+        return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
     }
 
     struct Pool {
