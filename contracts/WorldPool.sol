@@ -74,7 +74,7 @@ contract WorldPool is ReentrancyGuard {
         pools[poolId] = pool;
     }
 
-    function deletePool(bytes32 poolId) {
+    function deletePool(bytes32 poolId) public {
         address owner = msg.sender;
 
         require(
@@ -113,7 +113,7 @@ contract WorldPool is ReentrancyGuard {
 
         PoolDepositEscrow memory poolDepositEscrow = PoolDepositEscrow({
             id: escrowId,
-            owner: owner,
+            owner: msg.sender,
             poolId: poolId,
             balance: 0
         });
@@ -122,7 +122,7 @@ contract WorldPool is ReentrancyGuard {
         poolDepositEscrows[escrowId] = poolDepositEscrow;
     }
 
-    function depositIntoUserEscrow(bytes escrowId) public payable {
+    function depositIntoUserEscrow(bytes32 escrowId) public payable {
         PoolDepositEscrow memory poolDepositEscrow = poolDepositEscrows[escrowId];
 
         require(
