@@ -13,92 +13,156 @@ contract Escrow is ReentrancyGuard {
 
     constructor() { _nonce = 0; }
 
-    mapping(bytes32 => Structs.Escrow) public poolDepositEscrows;
+    mapping(bytes32 => Structs.Escrow) public escrows;
 
     function External(address worldPoolContractAddress) public {
         worldPoolContract = WorldPool(worldPoolContractAddress);
     }
 
-    function createUserEscrow(bytes32 poolId) public payable {
+    function create(bytes32 poolId)
+        public
+        payable
+        poolKeyExistsOrError(poolId)
+        validStakeOrError(poolId, msg.value)
+    {
         bytes32 escrowId = keccak256(abi.encodePacked(block.number, msg.data, _nonce++));
+        create(poolId, escrowId);
+    }
 
-        Structs.Pool memory pool = worldPoolContract.getPool(poolId);
-
-        require(
-            pool.owner != address(0x0),
-            "No Pool exists for this ID."
-        );
-
-        require(
-            poolDepositEscrows[escrowId].owner == address(0x0),
-            "Could not generate unique Pool Deposit Escrow ID."
-        );
-
-        require(
-            pool.minStake <= msg.value,
-            "Deposit does not meet the minimum requirement."
-        );
-
-        Structs.Escrow memory poolDepositEscrow = Structs.Escrow({
+    function create(bytes32 poolId, bytes32 escrowId)
+        private
+        poolKeyExistsOrError(poolId)
+        validStakeOrError(poolId, msg.value)
+        uniqueEscrowKeyOrError(escrowId)
+    {
+        escrows[escrowId] = Structs.Escrow({
             id: escrowId,
             owner: msg.sender,
             poolId: poolId,
-            balance: 0
+            balance: msg.value
         });
-
-        poolDepositEscrow.balance += msg.value;
-        poolDepositEscrows[escrowId] = poolDepositEscrow;
     }
 
-    function depositIntoUserEscrow(bytes32 escrowId) public payable {
-        Structs.Escrow memory poolDepositEscrow = poolDepositEscrows[escrowId];
-
-        require(
-            poolDepositEscrow.owner == msg.sender,
-            "No Pool Deposit Escrow exists for this ID or is owned by this user."
-        );
-
-        bytes32 poolId = poolDepositEscrow.poolId;
-        Structs.Pool memory pool = worldPoolContract.getPool(poolId);
-
-        require(
-            pool.owner != address(0x0),
-            "No Pool exists for this ID."
-        );
-
-        poolDepositEscrow.balance += msg.value;
-        poolDepositEscrows[escrowId] = poolDepositEscrow;
+    function deposit(bytes32 escrowId)
+        public
+        payable
+        escrowKeyExistsOrError(escrowId)
+    {
+        Structs.Escrow memory escrow = escrows[escrowId];
+        deposit(escrowId, escrow.poolId, escrow.owner);
     }
 
-    function withdrawFromUserEscrow(bytes32 escrowId, uint256 withdrawAmount) public {
-        Structs.Escrow memory poolDepositEscrow = poolDepositEscrows[escrowId];
+    function deposit(bytes32 escrowId, bytes32 poolId, address owner)
+        private
+        escrowKeyExistsOrError(escrowId)
+        poolKeyExistsOrError(poolId)
+        addressAuthorisedOrError(owner, msg.sender)
+    {
+        Structs.Escrow memory escrow = escrows[escrowId];
+        escrow.balance += msg.value;
+        escrows[escrowId] = escrow;
+    }
 
-        require(
-            poolDepositEscrow.owner == msg.sender,
-            "No Pool Deposit Escrow exists for this ID or is owned by this user."
-        );
+    function withdraw(bytes32 escrowId, uint256 withdrawAmount)
+        public
+        escrowKeyExistsOrError(escrowId)
+        validWithdrawAmountOrError(escrowId, withdrawAmount)
+    {
+        Structs.Escrow memory escrow = escrows[escrowId];
+        withdraw(escrowId, withdrawAmount, escrow.owner);
+    }
 
-        bytes32 poolId = poolDepositEscrow.poolId;
+    function withdraw(bytes32 escrowId, uint256 withdrawAmount, address owner)
+        private
+        escrowKeyExistsOrError(escrowId)
+        validWithdrawAmountOrError(escrowId, withdrawAmount)
+        addressAuthorisedOrError(owner, msg.sender)
+        withdrawOrError(withdrawAmount)
+    {
+        Structs.Escrow memory escrow = escrows[escrowId];
+        escrow.balance -= withdrawAmount;
+        escrows[escrowId] = escrow;
+    }
+
+    // Mods
+
+    modifier addressAuthorisedOrError(address auth, address a) {
+        if (auth != a) {
+            revert Errors.AddressUnauthorised();
+        }
+
+        _;
+    }
+
+    modifier addressExistsOrError(address a) {
+        if (a == address(0x0)) {
+            revert Errors.AddressNotFound();
+        }
+
+        _;
+    }
+
+    modifier uniqueEscrowKeyOrError(bytes32 escrowId) {
+        if (escrows[escrowId].owner != address(0x0)) {
+            revert Errors.KeyNotUnique();
+        }
+
+        _;
+    }
+
+    modifier escrowKeyExistsOrError(bytes32 escrowId) {
+        if (escrows[escrowId].owner == address(0x0)) {
+            revert Errors.KeyNotFound();
+        }
+
+        _;
+    }
+
+    modifier stringNotEmptyOrError(string memory str) {
+        if (bytes(str).length < 1) {
+            revert Errors.EmptyString();
+        }
+
+        _;
+    }
+
+    modifier validStakeOrError(bytes32 poolId, uint256 stake) {
         Structs.Pool memory pool = worldPoolContract.getPool(poolId);
 
-        require(
-            pool.owner != address(0x0),
-            "No Pool exists for this ID."
-        );
+        if (pool.minStake > stake) {
+            revert Errors.InsufficientStake();
+        }
 
-        require(
-            poolDepositEscrow.balance >= withdrawAmount,
-            "Insufficient balance in Escrow."
-        );
+        _;
+    }
 
-        poolDepositEscrow.balance -= withdrawAmount;
-        poolDepositEscrows[escrowId] = poolDepositEscrow;
+    modifier validWithdrawAmountOrError(bytes32 escrowId, uint256 withdrawAmount) {
+        Structs.Escrow memory escrow = escrows[escrowId];
 
+        if (escrow.balance < withdrawAmount) {
+            revert Errors.InsufficientBalance();
+        }
+
+        _;
+    }
+
+    modifier poolKeyExistsOrError(bytes32 poolId) {
+        Structs.Pool memory pool = worldPoolContract.getPool(poolId);
+
+        if (pool.owner == address(0x0)) {
+            revert Errors.KeyNotFound();
+        }
+
+        _;
+    }
+
+    modifier withdrawOrError(uint256 withdrawAmount) {
         (bool sent,) = msg.sender.call{ value: withdrawAmount }("");
 
-        require(
-            sent,
-            "Withdraw failed."
-        );
+        if (!sent) {
+            revert Errors.WithdrawalFailed();
+        }
+
+        _;
     }
 }

@@ -10,4 +10,7 @@ library Errors {
     error AddressNotFound();
     error KeyNotUnique();
     error KeyNotFound();
+    error InsufficientStake();
+    error InsufficientBalance();
+    error WithdrawalFailed();
 }
