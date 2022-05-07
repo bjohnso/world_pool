@@ -3,31 +3,39 @@ pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./lib/Structs.sol";
+import "./lib/Utils.sol";
+import "./lib/Errors.sol";
 
 contract WorldPool is ReentrancyGuard {
 
     uint _nonce;
 
-    mapping(bytes32 => Pool) public pools;
-    mapping(bytes32 => PoolDepositEscrow) public poolDepositEscrows;
+    mapping(bytes32 => Structs.Pool) public pools;
 
     constructor() { _nonce = 0; }
 
-    function createPool(string memory name, string memory description, uint256 minStake) public {
+    function getPool(bytes32 poolId) public view returns (Structs.Pool memory) {
+        return pools[poolId];
+    }
+
+    function createPool(string memory name, string memory description, uint256 minStake)
+        public
+        nonReentrant
+    {
         bytes32 poolId = keccak256(abi.encodePacked(block.number, msg.data, _nonce++));
+        createPool(name, description, minStake, poolId);
+    }
+
+    function createPool(string memory name, string memory description, uint256 minStake, bytes32 poolId)
+        private
+        nonReentrant
+        stringNotEmptyOrError(name)
+        uniquePoolKeyOrError(poolId)
+    {
         address owner = msg.sender;
 
-        require(
-            pools[poolId].owner == address(0x0),
-            "Could not generate unique Pool ID."
-        );
-
-        require(
-            bytes(name).length > 0,
-            "Pool name can not be empty."
-        );
-
-        Pool memory pool = Pool({
+        Structs.Pool memory pool = Structs.Pool({
             id: poolId,
             owner: owner,
             name: name,
@@ -39,31 +47,35 @@ contract WorldPool is ReentrancyGuard {
         pools[poolId] = pool;
     }
 
-    function updatePool(bytes32 poolId, string memory name, string memory description, uint256 minStake) public {
-        address owner = msg.sender;
+    function updatePool(bytes32 poolId, string memory name, string memory description, uint256 minStake)
+        public
+        nonReentrant
+        poolKeyExistsOrError(poolId)
+    {
+        Structs.Pool memory pool = pools[poolId];
+        updatePool(poolId, name, description, minStake, pool.owner);
+    }
 
-        require(
-            pools[poolId].owner != address(0x0),
-            "No Pool exists for this ID."
-        );
+    function updatePool(
+        bytes32 poolId,
+        string memory name,
+        string memory description,
+        uint256 minStake,
+        address poolOwner
+    )
+        private
+        nonReentrant
+        stringNotEmptyOrError(name)
+        poolKeyExistsOrError(poolId)
+        addressAuthorisedOrError(poolOwner, msg.sender)
+    {
+        Structs.Pool memory pool = pools[poolId];
 
-        require(
-            pools[poolId].owner == owner,
-            "A transaction signer must own the Pool they wish to update."
-        );
-
-        require(
-            bytes(name).length > 0,
-            "Pool name can not be empty."
-        );
-
-        Pool memory pool = pools[poolId];
-
-        if (!compareStrings(pool.name, name)) {
+        if (!Utils.compareStrings(pool.name, name)) {
             pool.name = name;
         }
 
-        if (!compareStrings(pool.description, description)) {
+        if (!Utils.compareStrings(pool.description, description)) {
             pool.description = description;
         }
 
@@ -74,121 +86,66 @@ contract WorldPool is ReentrancyGuard {
         pools[poolId] = pool;
     }
 
-    function deletePool(bytes32 poolId) public {
-        address owner = msg.sender;
+    function deletePool(bytes32 poolId)
+        public
+        nonReentrant
+        poolKeyExistsOrError(poolId)
+    {
+        Structs.Pool memory pool = pools[poolId];
+        deletePool(poolId, pool.owner);
+    }
 
-        require(
-            pools[poolId].owner != address(0x0),
-            "No Pool exists for this ID."
-        );
-
-        require(
-            pools[poolId].owner == owner,
-            "A transaction signer must own the Pool they wish to delete."
-        );
-
+    function deletePool(bytes32 poolId, address poolOwner)
+        private
+        nonReentrant
+        poolKeyExistsOrError(poolId)
+        addressAuthorisedOrError(poolOwner, msg.sender)
+    {
         // TODO : Payout contributors
         // TODO : Payout admin
 
         delete pools[poolId];
     }
 
-    function createUserEscrow(bytes32 poolId) public payable {
-        bytes32 escrowId = keccak256(abi.encodePacked(block.number, msg.data, _nonce++));
+    // Mods
 
-        require(
-            pools[poolId].owner != address(0x0),
-            "No Pool exists for this ID."
-        );
+    modifier addressAuthorisedOrError(address auth, address a) {
+        if (auth != a) {
+            revert Errors.AddressUnauthorised();
+        }
 
-        require(
-            poolDepositEscrows[escrowId].owner == address(0x0),
-            "Could not generate unique Pool Deposit Escrow ID."
-        );
-
-        require(
-            pools[poolId].minStake <= msg.value,
-            "Deposit does not meet the minimum requirement."
-        );
-
-        PoolDepositEscrow memory poolDepositEscrow = PoolDepositEscrow({
-            id: escrowId,
-            owner: msg.sender,
-            poolId: poolId,
-            balance: 0
-        });
-
-        poolDepositEscrow.balance += msg.value;
-        poolDepositEscrows[escrowId] = poolDepositEscrow;
+        _;
     }
 
-    function depositIntoUserEscrow(bytes32 escrowId) public payable {
-        PoolDepositEscrow memory poolDepositEscrow = poolDepositEscrows[escrowId];
+    modifier addressExistsOrError(address a) {
+        if (a == address(0x0)) {
+            revert Errors.AddressNotFound();
+        }
 
-        require(
-            poolDepositEscrow.owner == msg.sender,
-            "No Pool Deposit Escrow exists for this ID or is owned by this user."
-        );
-
-        bytes32 poolId = poolDepositEscrow.poolId;
-
-        require(
-            pools[poolId].owner != address(0x0),
-            "No Pool exists for this ID."
-        );
-
-        poolDepositEscrow.balance += msg.value;
-        poolDepositEscrows[escrowId] = poolDepositEscrow;
+        _;
     }
 
-    function withdrawFromUserEscrow(bytes32 escrowId, uint256 withdrawAmount) public {
-        PoolDepositEscrow memory poolDepositEscrow = poolDepositEscrows[escrowId];
+    modifier uniquePoolKeyOrError(bytes32 poolId) {
+        if (pools[poolId].owner != address(0x0)) {
+            revert Errors.KeyNotUnique();
+        }
 
-        require(
-            poolDepositEscrow.owner == msg.sender,
-            "No Pool Deposit Escrow exists for this ID or is owned by this user."
-        );
-
-        bytes32 poolId = poolDepositEscrow.poolId;
-
-        require(
-            pools[poolId].owner != address(0x0),
-            "No Pool exists for this ID."
-        );
-
-        require(
-            poolDepositEscrow.balance >= withdrawAmount,
-            "Insufficient balance in Escrow."
-        );
-
-        poolDepositEscrow.balance -= withdrawAmount;
-        poolDepositEscrows[escrowId] = poolDepositEscrow;
-
-        (bool sent,) = msg.sender.call{ value: withdrawAmount }("");
-
-        require(
-            sent,
-            "Withdraw failed."
-        );
+        _;
     }
 
-    function compareStrings (string memory a, string memory b) public pure returns (bool) {
-        return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
+    modifier poolKeyExistsOrError(bytes32 poolId) {
+        if (pools[poolId].owner == address(0x0)) {
+            revert Errors.KeyNotFound();
+        }
+
+        _;
     }
 
-    struct Pool {
-        bytes32 id; // pool Id
-        address owner; // pool owner
-        string name; // pool name
-        string description; // pool description
-        uint256 balance; // staked amount in wei
-        uint256 minStake; // minimum amount staked
-    }
+    modifier stringNotEmptyOrError(string memory str) {
+        if (bytes(str).length < 1) {
+            revert Errors.EmptyString();
+        }
 
-    struct PoolDepositEscrow {
-        bytes32 id; // escrow Id
-        address owner; // owner of deposited funds
-        bytes32 poolId; // pool Id
-        uint256 balance; // staked amount in wei
+        _;
     }
 }
