@@ -3,8 +3,9 @@ pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./lib/Structs.sol";
 import "./WorldPool.sol";
+import "./lib/Structs.sol";
+import "./lib/Errors.sol";
 
 contract Escrow is ReentrancyGuard {
     uint _nonce;

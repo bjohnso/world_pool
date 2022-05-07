@@ -4,16 +4,15 @@ pragma solidity ^0.8.4;
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./lib/Structs.sol";
-import "./lib/Utils.sol";
 import "./lib/Errors.sol";
 
 contract WorldPool is ReentrancyGuard {
 
-    uint _nonce;
+    uint256 private _nonce;
 
     mapping(bytes32 => Structs.Pool) public pools;
 
-    constructor() { _nonce = 0; }
+    constructor() { _nonce = 1; }
 
     function getPool(bytes32 poolId) public view returns (Structs.Pool memory) {
         return pools[poolId];
@@ -29,7 +28,6 @@ contract WorldPool is ReentrancyGuard {
 
     function createPool(string memory name, string memory description, uint256 minStake, bytes32 poolId)
         private
-        nonReentrant
         stringNotEmptyOrError(name)
         uniquePoolKeyOrError(poolId)
     {
@@ -45,6 +43,15 @@ contract WorldPool is ReentrancyGuard {
         });
 
         pools[poolId] = pool;
+
+        emit CreatePool(
+            pool.id,
+            pool.owner,
+            pool.name,
+            pool.description,
+            pool.balance,
+            pool.minStake
+        );
     }
 
     function updatePool(bytes32 poolId, string memory name, string memory description, uint256 minStake)
@@ -71,11 +78,11 @@ contract WorldPool is ReentrancyGuard {
     {
         Structs.Pool memory pool = pools[poolId];
 
-        if (!Utils.compareStrings(pool.name, name)) {
+        if (compareStrings(pool.name, name)) {
             pool.name = name;
         }
 
-        if (!Utils.compareStrings(pool.description, description)) {
+        if (compareStrings(pool.description, description)) {
             pool.description = description;
         }
 
@@ -105,6 +112,12 @@ contract WorldPool is ReentrancyGuard {
         // TODO : Payout admin
 
         delete pools[poolId];
+    }
+
+    // Util
+
+    function compareStrings (string memory a, string memory b) private pure returns (bool) {
+        return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
     }
 
     // Mods
@@ -148,4 +161,15 @@ contract WorldPool is ReentrancyGuard {
 
         _;
     }
+
+    // Events
+
+    event CreatePool(
+        bytes32 id, // pool Id
+        address owner, // pool owner
+        string name, // pool name
+        string description, // pool description
+        uint256 balance, // staked amount in wei
+        uint256 minStake // minimum amount staked
+    );
 }
