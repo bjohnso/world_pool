@@ -126,8 +126,8 @@ contract WorldPool is ReentrancyGuard {
         PoolDepositEscrow memory poolDepositEscrow = poolDepositEscrows[escrowId];
 
         require(
-            poolDepositEscrow.owner != address(0x0),
-            "No Pool Deposit Escrow exists for this ID."
+            poolDepositEscrow.owner == msg.sender,
+            "No Pool Deposit Escrow exists for this ID or is owned by this user."
         );
 
         bytes32 poolId = poolDepositEscrow.poolId;
@@ -139,6 +139,37 @@ contract WorldPool is ReentrancyGuard {
 
         poolDepositEscrow.balance += msg.value;
         poolDepositEscrows[escrowId] = poolDepositEscrow;
+    }
+
+    function withdrawFromUserEscrow(bytes32 escrowId, uint256 withdrawAmount) public {
+        PoolDepositEscrow memory poolDepositEscrow = poolDepositEscrows[escrowId];
+
+        require(
+            poolDepositEscrow.owner == msg.sender,
+            "No Pool Deposit Escrow exists for this ID or is owned by this user."
+        );
+
+        bytes32 poolId = poolDepositEscrow.poolId;
+
+        require(
+            pools[poolId].owner != address(0x0),
+            "No Pool exists for this ID."
+        );
+
+        require(
+            poolDepositEscrow.balance >= withdrawAmount,
+            "Insufficient balance in Escrow."
+        );
+
+        poolDepositEscrow.balance -= withdrawAmount;
+        poolDepositEscrows[escrowId] = poolDepositEscrow;
+
+        (bool sent,) = msg.sender.call{ value: withdrawAmount }("");
+
+        require(
+            sent,
+            "Withdraw failed."
+        );
     }
 
     function compareStrings (string memory a, string memory b) public pure returns (bool) {
