@@ -7,7 +7,12 @@ import { unitWorldPoolFixture } from "./fixtures/fixture";
 import { WorldPool } from "../typechain";
 
 // eslint-disable-next-line node/no-missing-import
-import { worldPoolCreate, worldPoolUpdate } from "./world_pool/WorldPool.spec";
+import {
+  worldPoolCreate,
+  worldPoolDelete,
+  worldPoolUpdate,
+  // eslint-disable-next-line node/no-missing-import
+} from "./world_pool/WorldPool.spec";
 
 describe("Unit Tests", async () => {
   before(async function () {
@@ -31,5 +36,6 @@ describe("Unit Tests", async () => {
 
     worldPoolCreate();
     worldPoolUpdate();
+    worldPoolDelete();
   });
 });

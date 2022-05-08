@@ -112,14 +112,24 @@ contract WorldPool is ReentrancyGuard {
 
     function deletePool(bytes32 poolId, address poolOwner)
         private
-        nonReentrant
         poolKeyExistsOrError(poolId)
         addressAuthorisedOrError(poolOwner, msg.sender)
     {
         // TODO : Payout contributors
         // TODO : Payout admin
 
+        Structs.Pool memory pool = pools[poolId];
+
         delete pools[poolId];
+
+        emit DeletePool(
+            pool.id,
+            pool.owner,
+            pool.name,
+            pool.description,
+            pool.balance,
+            pool.minStake
+        );
     }
 
     // Util
@@ -182,6 +192,15 @@ contract WorldPool is ReentrancyGuard {
     );
 
     event UpdatePool(
+        bytes32 id, // pool Id
+        address owner, // pool owner
+        string name, // pool name
+        string description, // pool description
+        uint256 balance, // staked amount in wei
+        uint256 minStake // minimum amount staked
+    );
+
+    event DeletePool(
         bytes32 id, // pool Id
         address owner, // pool owner
         string name, // pool name

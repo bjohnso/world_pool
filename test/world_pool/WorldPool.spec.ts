@@ -100,3 +100,50 @@ export const worldPoolUpdate = (): void => {
     });
   });
 };
+
+export const worldPoolDelete = (): void => {
+  context("#delete", async function () {
+    before(async function () {
+      this.name = "Lorem Ipsum";
+      this.description = "lorem ipsum";
+      this.minStake = 1050975209;
+    });
+
+    beforeEach(async function () {
+      const tx = await this.worldPool
+        .connect(this.signers.poolAdmin)
+        .createPool(this.name, this.description, this.minStake);
+
+      const receipt = await tx.wait();
+
+      this.poolId = receipt.events[0].args[0];
+      this.poolOwner = receipt.events[0].args[1];
+    });
+
+    it("Should fail to delete pool due to KeyNotFound", async function () {
+      const unknownKey = ethers.utils.formatBytes32String("notFoundKey");
+
+      const tx = this.worldPool
+        .connect(this.signers.poolAdmin)
+        .deletePool(unknownKey);
+
+      await expect(tx).to.be.revertedWith("KeyNotFound");
+    });
+
+    it("Should fail to delete pool due to AddressUnauthorised", async function () {
+      const tx = this.worldPool
+        .connect(this.signers.unauthorised)
+        .deletePool(this.poolId);
+
+      await expect(tx).to.be.revertedWith("AddressUnauthorised");
+    });
+
+    it("Should delete pool", async function () {
+      const tx = this.worldPool
+        .connect(this.signers.poolAdmin)
+        .deletePool(this.poolId);
+
+      await expect(tx).to.be.emit(this.worldPool, "DeletePool");
+    });
+  });
+};
