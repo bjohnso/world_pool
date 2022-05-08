@@ -2,27 +2,29 @@
 pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./WorldPool.sol";
 import "./lib/Structs.sol";
 import "./lib/Errors.sol";
 
-contract Escrow is ReentrancyGuard {
+contract Escrow is ReentrancyGuard, Ownable {
     uint _nonce;
 
     WorldPool worldPoolContract;
 
-    constructor() { _nonce = 0; }
+    constructor() { _nonce = 1; }
 
     mapping(bytes32 => Structs.Escrow) public escrows;
 
-    function External(address worldPoolContractAddress) public {
+    function initWorldPoolContract(address worldPoolContractAddress) public onlyOwner {
         worldPoolContract = WorldPool(worldPoolContractAddress);
+        emit InitWorldPoolContract(worldPoolContractAddress);
     }
 
     function create(bytes32 poolId)
         public
         payable
+        nonReentrant
         poolKeyExistsOrError(poolId)
         validStakeOrError(poolId, msg.value)
     {
@@ -42,11 +44,19 @@ contract Escrow is ReentrancyGuard {
             poolId: poolId,
             balance: msg.value
         });
+
+        emit CreateEscrow(
+            escrowId,
+            msg.sender,
+            poolId,
+            msg.value
+        );
     }
 
     function deposit(bytes32 escrowId)
         public
         payable
+        nonReentrant
         escrowKeyExistsOrError(escrowId)
     {
         Structs.Escrow memory escrow = escrows[escrowId];
@@ -62,10 +72,18 @@ contract Escrow is ReentrancyGuard {
         Structs.Escrow memory escrow = escrows[escrowId];
         escrow.balance += msg.value;
         escrows[escrowId] = escrow;
+
+        emit DepositEscrow(
+            escrow.id,
+            escrow.owner,
+            escrow.poolId,
+            escrow.balance
+        );
     }
 
     function withdraw(bytes32 escrowId, uint256 withdrawAmount)
         public
+        nonReentrant
         escrowKeyExistsOrError(escrowId)
         validWithdrawAmountOrError(escrowId, withdrawAmount)
     {
@@ -83,6 +101,13 @@ contract Escrow is ReentrancyGuard {
         Structs.Escrow memory escrow = escrows[escrowId];
         escrow.balance -= withdrawAmount;
         escrows[escrowId] = escrow;
+
+        emit WithdrawEscrow(
+            escrow.id,
+            escrow.owner,
+            escrow.poolId,
+            escrow.balance
+        );
     }
 
     // Mods
@@ -166,4 +191,31 @@ contract Escrow is ReentrancyGuard {
 
         _;
     }
+
+    // Events
+
+    event InitWorldPoolContract(
+        address worldPoolContractAddress // World Pool Contract Address
+    );
+
+    event CreateEscrow(
+        bytes32 id,
+        address owner,
+        bytes32 poolId,
+        uint256 balance
+    );
+
+    event DepositEscrow(
+        bytes32 id,
+        address owner,
+        bytes32 poolId,
+        uint256 balance
+    );
+
+    event WithdrawEscrow(
+        bytes32 id,
+        address owner,
+        bytes32 poolId,
+        uint256 balance
+    );
 }

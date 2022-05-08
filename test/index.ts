@@ -1,10 +1,10 @@
 import { waffle } from "hardhat";
 
 // eslint-disable-next-line node/no-missing-import
-import { unitWorldPoolFixture } from "./fixtures/fixture";
+import { unitEscrowFixture, unitWorldPoolFixture } from "./fixtures/fixture";
 
 // eslint-disable-next-line no-unused-vars,node/no-missing-import
-import { WorldPool } from "../typechain";
+import { WorldPool, Escrow } from "../typechain";
 
 // eslint-disable-next-line node/no-missing-import
 import {
@@ -13,6 +13,14 @@ import {
   worldPoolUpdate,
   // eslint-disable-next-line node/no-missing-import
 } from "./world_pool/WorldPool.spec";
+
+import {
+  escrowContractInit,
+  escrowCreate,
+  escrowDeposit,
+  escrowWithdraw,
+  // eslint-disable-next-line node/no-missing-import
+} from "./escrow/Escrow.spec";
 
 describe("Unit Tests", async () => {
   before(async function () {
@@ -37,5 +45,18 @@ describe("Unit Tests", async () => {
     worldPoolCreate();
     worldPoolUpdate();
     worldPoolDelete();
+  });
+
+  describe("Escrow", async function () {
+    beforeEach(async function () {
+      const { escrow, worldPool } = await this.loadFixture(unitEscrowFixture);
+      this.worldPool = worldPool;
+      this.escrow = escrow;
+    });
+
+    escrowContractInit();
+    escrowCreate();
+    escrowDeposit();
+    escrowWithdraw();
   });
 });
