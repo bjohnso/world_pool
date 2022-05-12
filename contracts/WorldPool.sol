@@ -11,11 +11,18 @@ contract WorldPool is ReentrancyGuard {
     uint256 private _nonce;
 
     mapping(bytes32 => Structs.Pool) public pools;
+    mapping(bytes32 => Structs.Escrow) public escrows;
 
     constructor() { _nonce = 1; }
 
+    // Pools
+
     function getPool(bytes32 poolId) public view returns (Structs.Pool memory) {
         return pools[poolId];
+    }
+
+    function getEscrow(bytes32 escrowId) public view returns (Structs.Escrow memory) {
+        return escrows[escrowId];
     }
 
     function createPool(string memory name, string memory description, uint256 minStake)
@@ -132,6 +139,112 @@ contract WorldPool is ReentrancyGuard {
         );
     }
 
+    // Escrows
+
+    function createEscrow(bytes32 poolId)
+        public
+        payable
+        nonReentrant
+        poolKeyExistsOrError(poolId)
+        validStakeOrError(poolId, msg.value)
+    {
+        bytes32 escrowId = keccak256(abi.encodePacked(block.number, msg.data, _nonce++));
+        createEscrow(poolId, escrowId);
+    }
+
+    function createEscrow(bytes32 poolId, bytes32 escrowId)
+        private
+        poolKeyExistsOrError(poolId)
+        validStakeOrError(poolId, msg.value)
+        uniqueEscrowKeyOrError(escrowId)
+    {
+        escrows[escrowId] = Structs.Escrow({
+            id: escrowId,
+            owner: msg.sender,
+            poolId: poolId,
+            balance: msg.value
+        });
+
+        Structs.Pool memory pool = pools[poolId];
+        pool.balance += msg.value;
+        pools[poolId] = pool;
+
+        emit CreateEscrow(
+            escrowId,
+            msg.sender,
+            poolId,
+            msg.value
+        );
+    }
+
+    function depositEscrow(bytes32 escrowId)
+        public
+        payable
+        nonReentrant
+        escrowKeyExistsOrError(escrowId)
+    {
+        Structs.Escrow memory escrow = escrows[escrowId];
+        depositEscrow(escrowId, escrow.poolId, escrow.owner);
+    }
+
+    function depositEscrow(bytes32 escrowId, bytes32 poolId, address owner)
+        private
+        escrowKeyExistsOrError(escrowId)
+        poolKeyExistsOrError(poolId)
+        addressAuthorisedOrError(owner, msg.sender)
+    {
+        Structs.Escrow memory escrow = escrows[escrowId];
+        escrow.balance += msg.value;
+        escrows[escrowId] = escrow;
+
+        Structs.Pool memory pool = pools[poolId];
+        pool.balance += msg.value;
+        pools[poolId] = pool;
+
+        emit DepositEscrow(
+            escrow.id,
+            escrow.owner,
+            escrow.poolId,
+            escrow.balance
+        );
+    }
+
+    function withdrawEscrow(bytes32 escrowId, uint256 withdrawAmount)
+        public
+        nonReentrant
+        escrowKeyExistsOrError(escrowId)
+        validWithdrawAmountOrError(escrowId, withdrawAmount)
+    {
+        Structs.Escrow memory escrow = escrows[escrowId];
+        withdrawEscrow(escrowId, withdrawAmount, escrow.owner);
+    }
+
+    function withdrawEscrow(bytes32 escrowId, uint256 withdrawAmount, address owner)
+        private
+        escrowKeyExistsOrError(escrowId)
+        validWithdrawAmountOrError(escrowId, withdrawAmount)
+        addressAuthorisedOrError(owner, msg.sender)
+        withdrawOrError(withdrawAmount)
+    {
+        Structs.Escrow memory escrow = escrows[escrowId];
+        escrow.balance -= withdrawAmount;
+        escrows[escrowId] = escrow;
+
+        //TODO: VALIDATE POOL BALANCE
+        bytes32 poolId = escrow.poolId;
+
+        Structs.Pool memory pool = pools[poolId];
+        pool.balance -= msg.value;
+        pools[poolId] = pool;
+
+        emit WithdrawEscrow(
+            escrow.id,
+            escrow.owner,
+            escrow.poolId,
+            escrow.balance
+        );
+    }
+
     // Util
 
     function compareStrings (string memory a, string memory b) private pure returns (bool) {
@@ -180,6 +293,52 @@ contract WorldPool is ReentrancyGuard {
         _;
     }
 
+    modifier uniqueEscrowKeyOrError(bytes32 escrowId) {
+        if (escrows[escrowId].owner != address(0x0)) {
+            revert Errors.KeyNotUnique();
+        }
+
+        _;
+    }
+
+    modifier escrowKeyExistsOrError(bytes32 escrowId) {
+        if (escrows[escrowId].owner == address(0x0)) {
+            revert Errors.KeyNotFound();
+        }
+
+        _;
+    }
+
+    modifier validStakeOrError(bytes32 poolId, uint256 stake) {
+        Structs.Pool memory pool = pools[poolId];
+
+        if (pool.minStake > stake) {
+            revert Errors.InsufficientStake();
+        }
+
+        _;
+    }
+
+    modifier validWithdrawAmountOrError(bytes32 escrowId, uint256 withdrawAmount) {
+        Structs.Escrow memory escrow = escrows[escrowId];
+
+        if (escrow.balance < withdrawAmount) {
+            revert Errors.InsufficientBalance();
+        }
+
+        _;
+    }
+
+    modifier withdrawOrError(uint256 withdrawAmount) {
+        (bool sent,) = msg.sender.call{ value: withdrawAmount }("");
+
+        if (!sent) {
+            revert Errors.WithdrawalFailed();
+        }
+
+        _;
+    }
+
     // Events
 
     event CreatePool(
@@ -207,5 +366,26 @@ contract WorldPool is ReentrancyGuard {
         string description, // pool description
         uint256 balance, // staked amount in wei
         uint256 minStake // minimum amount staked
+    );
+
+    event CreateEscrow(
+        bytes32 id,
+        address owner,
+        bytes32 poolId,
+        uint256 balance
+    );
+
+    event DepositEscrow(
+        bytes32 id,
+        address owner,
+        bytes32 poolId,
+        uint256 balance
+    );
+
+    event WithdrawEscrow(
+        bytes32 id,
+        address owner,
+        bytes32 poolId,
+        uint256 balance
     );
 }
